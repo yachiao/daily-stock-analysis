@@ -2,10 +2,9 @@ name: Daily Stock Update
 
 on:
   schedule:
-    # 設定執行時間 (UTC 時間)
-    # UTC 08:00 = 台灣時間 16:00 (收盤後)
-    - cron: '0 8 * * *' 
-  workflow_dispatch: # 讓你可以在網頁上手動按按鈕測試
+    # 每天 UTC 07:00 (台灣下午 3:00) 執行
+    - cron: '0 7 * * *'
+  workflow_dispatch: # 允許手動執行
 
 jobs:
   run_analysis:
@@ -25,6 +24,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: 執行分析程式
+        env:
+          # 這裡會讀取你在 Step 2 設定的密碼
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python analysis.py
 
       - name: 提交並儲存結果 (Commit & Push)
@@ -32,6 +35,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add results/
-          # 如果有變動才 commit，沒變動則略過 (避免報錯)
+          # 如果有變動才 commit，沒變動則略過
           git commit -m "Auto-update market breadth chart" || exit 0
           git push
