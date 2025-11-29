@@ -6,9 +6,8 @@ import requests
 import twstock
 from datetime import datetime
 
-# --- 設定中文字型 (選用，避免亂碼，若無則使用英文) ---
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial', 'sans-serif']
-plt.rcParams['axes.unicode_minus'] = False
+# --- 設定繪圖風格與字型 ---
+plt.style.use('ggplot')
 
 # 確保結果資料夾存在
 if not os.path.exists('results'):
@@ -32,22 +31,28 @@ except Exception as e:
     print(f"取得代碼失敗: {e}")
     exit()
 
-print(f"[{datetime.now()}] 2. 開始下載歷史資料 (可能需要 3~5 分鐘)...")
+print(f"[{datetime.now()}] 2. 開始下載歷史資料 (改為 2 年數據)...")
 
 # 下載資料
 try:
-    # 使用 1 年資料 (1y) 以節省記憶體並加快速度
-    data = yf.download(stock_list, period="1y", interval="1d", progress=False)
+    # 【修正 1】改用 2y (兩年)，確保扣掉假日後還有大於 200 筆資料
+    # threads=True 開啟多執行緒加速
+    data = yf.download(stock_list, period="2y", interval="1d", progress=False, threads=True)
     
-    # 處理資料結構 (yfinance 新舊版相容)
+    # 處理資料結構
     if 'Close' in data.columns:
         df_close = data['Close']
     else:
         df_close = data
 
-    # 過濾掉完全沒資料的空股票
+    # 過濾掉「完全沒資料」的空股票 (例如已下市)
     df_close = df_close.dropna(axis=1, how='all')
-    print(f"成功下載並保留 {df_close.shape[1]} 檔有效股票資料")
+    
+    # 【偵錯重點】印出實際成功下載的數量
+    print(f"📊 原始清單: {len(stock_list)} 檔 -> 實際有效資料: {df_close.shape[1]} 檔")
+    
+    if df_close.shape[1] < 100:
+        print("⚠️ 警告：有效股票過少，可能是 yfinance 下載遭擋或格式改變。")
 
 except Exception as e:
     print(f"下載失敗: {e}")
@@ -56,11 +61,14 @@ except Exception as e:
 print(f"[{datetime.now()}] 3. 計算 200 日新高與新低...")
 
 window = 200
-# 計算滾動最大與最小 (min_periods確保資料不足也能計算部分)
-rolling_max = df_close.rolling(window=window, min_periods=window).max()
-rolling_min = df_close.rolling(window=window, min_periods=window).min()
 
-# 判斷新高新低 (當日收盤價 >= 過去200天最大值)
+# 【修正 2】min_periods 改為 150
+# 允許資料中間有缺漏 (颱風、停牌)，只要有 150 筆以上就計算，避免股票被誤刪
+rolling_max = df_close.rolling(window=window, min_periods=150).max()
+rolling_min = df_close.rolling(window=window, min_periods=150).min()
+
+# 判斷新高新低
+# 這裡加一個容許值 (>= 0.999) 避免浮點數誤差，但嚴格來說用 >= 即可
 is_new_high = (df_close >= rolling_max)
 is_new_low = (df_close <= rolling_min)
 
@@ -69,26 +77,30 @@ market_breadth = pd.DataFrame()
 market_breadth['New_Highs_Count'] = is_new_high.sum(axis=1)
 market_breadth['New_Lows_Count'] = is_new_low.sum(axis=1)
 
-# 取最近半年數據繪圖 (120個交易日)
+# 取最近半年數據繪圖
 analysis_df = market_breadth.iloc[-120:]
 
 print(f"[{datetime.now()}] 4. 繪製圖表...")
 
-plt.style.use('ggplot') # 使用好看的風格
 plt.figure(figsize=(14, 7))
 
-# 繪製區域圖 (Area Plot)
+# 繪製區域圖
 plt.fill_between(analysis_df.index, analysis_df['New_Highs_Count'], color='red', alpha=0.3)
 plt.plot(analysis_df.index, analysis_df['New_Highs_Count'], color='red', linewidth=2, label='New Highs (200d)')
 
 plt.fill_between(analysis_df.index, analysis_df['New_Lows_Count'], color='green', alpha=0.3)
 plt.plot(analysis_df.index, analysis_df['New_Lows_Count'], color='green', linewidth=2, label='New Lows (200d)')
 
-plt.title(f'TWSE Market Breadth (All Stocks) - Updated: {datetime.now().date()}')
+# 加上今天的數值標籤在圖上
+last_date = analysis_df.index[-1].strftime('%Y-%m-%d')
+last_high = int(analysis_df['New_Highs_Count'].iloc[-1])
+last_low = int(analysis_df['New_Lows_Count'].iloc[-1])
+
+plt.title(f'TWSE Market Breadth (Sample: {df_close.shape[1]} Stocks) - {last_date}')
 plt.ylabel('Number of Stocks')
 plt.legend(loc='upper left')
 plt.grid(True, alpha=0.3)
-plt.gcf().autofmt_xdate() # 自動旋轉日期標籤
+plt.gcf().autofmt_xdate()
 
 # 存檔
 img_path = 'results/market_breadth.png'
@@ -104,16 +116,13 @@ chat_id = os.environ.get('TELEGRAM_CHAT_ID')
 if tg_token and chat_id:
     url = f"https://api.telegram.org/bot{tg_token}/sendPhoto"
     
-    # 準備文字訊息
-    high_count = int(analysis_df["New_Highs_Count"].iloc[-1])
-    low_count = int(analysis_df["New_Lows_Count"].iloc[-1])
-    
     caption = (
         f'📊 **台股全市場寬度分析**\n'
-        f'📅 日期: {datetime.now().date()}\n'
-        f'📈 創200日新高家數: {high_count}\n'
-        f'📉 創200日新低家數: {low_count}\n'
-        f'🤖 自動化分析報告'
+        f'📅 日期: {last_date}\n'
+        f'🔍 統計樣本: {df_close.shape[1]} 檔\n'
+        f'📈 創200日新高: {last_high} 家\n'
+        f'📉 創200日新低: {last_low} 家\n'
+        f'🤖 自動化報告'
     )
     
     try:
