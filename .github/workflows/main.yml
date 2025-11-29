@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
+          cache: 'pip' # <--- 加上這一行
       - name: 安裝套件
         run: |
           pip install -r requirements.txt
