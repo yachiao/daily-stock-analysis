@@ -28,8 +28,8 @@ try:
         if row.type == '股票':
             if row.market == '上市':
                 stock_list.append(code + '.TW')
-            elif row.market == '上櫃':
-                stock_list.append(code + '.TWO')
+           # elif row.market == '上櫃':
+           #     stock_list.append(code + '.TWO')
     print(f"共取得 {len(stock_list)} 檔股票代碼。")
 except Exception as e:
     print(f"取得代碼失敗: {e}")
