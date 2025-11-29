@@ -19,17 +19,17 @@ if not os.path.exists('results'):
 
 print(f"[{datetime.now()}] 1. 正在取得全台股代碼清單...")
 
-# 1. 取得股票代碼
+# 1. 取得股票代碼 (只抓上市)
 stock_list = []
 try:
     codes = twstock.codes
     for code in codes:
         row = codes[code]
         if row.type == '股票':
+            # 只保留 '上市'，完全忽略上櫃
             if row.market == '上市':
                 stock_list.append(code + '.TW')
-            elif row.market == '上櫃':
-                stock_list.append(code + '.TWO')
+            
     print(f"共取得 {len(stock_list)} 檔股票代碼。")
 except Exception as e:
     print(f"取得代碼失敗: {e}")
