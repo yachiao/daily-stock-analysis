@@ -1,69 +1,71 @@
-import yfinance as yf
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import os
+import requests
 from datetime import datetime
 
-# --- 設定繪圖風格 (選用) ---
-plt.style.use('ggplot')
-
-# 1. 股票清單
-stock_list = [
-    '2330.TW', '2317.TW', '2454.TW', '2308.TW', '2303.TW', '2881.TW', '2882.TW', 
-    '1301.TW', '1303.TW', '2002.TW', '1216.TW', '2886.TW', '2891.TW', '3008.TW',
-    '3045.TW', '5880.TW', '2884.TW', '4938.TW', '2892.TW', '5871.TW', '2382.TW'
-]
-
-print(f"[{datetime.now()}] 開始執行自動化分析...")
-
-# 2. 下載資料
-try:
-    data = yf.download(stock_list, period="2y", interval="1d", progress=False)
-    if 'Close' in data.columns:
-        df_close = data['Close']
-    else:
-        df_close = data
-except Exception as e:
-    print(f"下載失敗: {e}")
-    exit()
-
-# 3. 計算 200 日新高/新低
-window = 200
-rolling_max = df_close.rolling(window=window, min_periods=window).max()
-rolling_min = df_close.rolling(window=window, min_periods=window).min()
-
-is_new_high = (df_close >= rolling_max)
-is_new_low = (df_close <= rolling_min)
-
-market_breadth = pd.DataFrame()
-market_breadth['New_Highs_Count'] = is_new_high.sum(axis=1)
-market_breadth['New_Lows_Count'] = is_new_low.sum(axis=1)
-
-# 只取最近 180 天
-analysis_df = market_breadth.iloc[-180:]
-
-# 4. 繪圖
-plt.figure(figsize=(12, 6))
-plt.plot(analysis_df.index, analysis_df['New_Highs_Count'], color='red', label='New Highs (200d)')
-plt.plot(analysis_df.index, analysis_df['New_Lows_Count'], color='green', label='New Lows (200d)')
-plt.fill_between(analysis_df.index, analysis_df['New_Highs_Count'], color='red', alpha=0.1)
-plt.fill_between(analysis_df.index, analysis_df['New_Lows_Count'], color='green', alpha=0.1)
-
-plt.title(f'TWSE Market Breadth - Updated: {datetime.now().date()}')
-plt.ylabel('Count')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.gcf().autofmt_xdate()
-
-# 5. 【關鍵修改】儲存結果而不是顯示
-# 建立一個 results 資料夾 (如果不存在)
+# 1. 建立結果資料夾
 if not os.path.exists('results'):
     os.makedirs('results')
 
-# 儲存圖片 (覆蓋舊圖，或加上日期也可)
-plt.savefig('results/market_breadth.png')
-print("圖片已儲存至 results/market_breadth.png")
+print("=== 開始 Telegram 連線測試 ===")
 
-# 儲存 CSV
-analysis_df.tail().to_csv('results/latest_data.csv')
-print("數據已儲存至 results/latest_data.csv")
+# 2. 製作一張測試用的假圖 (不抓股票)
+print("正在繪製測試圖表...")
+data = {'Day': [1, 2, 3, 4, 5], 'Value': [10, 50, 20, 80, 40]}
+df = pd.DataFrame(data)
+
+plt.figure(figsize=(10, 5))
+plt.plot(df['Day'], df['Value'], marker='o', color='blue', label='Test Data')
+plt.title(f'Telegram Connection Test - {datetime.now().date()}')
+plt.legend()
+plt.grid(True)
+
+# 存檔
+img_path = 'results/test_chart.png'
+plt.savefig(img_path)
+print(f"測試圖表已儲存至 {img_path}")
+
+# 3. 測試發送 Telegram
+print("準備發送訊息...")
+
+# 從 GitHub Secrets 讀取密碼
+tg_token = os.environ.get('TELEGRAM_TOKEN')
+chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+
+# 檢查是否有讀到密碼
+if not tg_token:
+    print("❌ 錯誤: 未讀取到 TELEGRAM_TOKEN，請檢查 GitHub Secrets 設定。")
+    exit()
+if not chat_id:
+    print("❌ 錯誤: 未讀取到 TELEGRAM_CHAT_ID，請檢查 GitHub Secrets 設定。")
+    exit()
+
+# 設定發送網址
+url = f"https://api.telegram.org/bot{tg_token}/sendPhoto"
+
+caption = (
+    f"🚀 **Telegram 連線測試成功！**\n"
+    f"📅 時間: {datetime.now()}\n"
+    f"✅ 機器人運作正常，可以準備更新成全台股版本囉！"
+)
+
+try:
+    with open(img_path, 'rb') as img_file:
+        files = {'photo': img_file}
+        data = {
+            'chat_id': chat_id,
+            'caption': caption,
+            'parse_mode': 'Markdown'
+        }
+        # 發送請求
+        response = requests.post(url, data=data, files=files)
+        
+    if response.status_code == 200:
+        print("✅ Telegram 發送成功！請檢查你的手機。")
+    else:
+        print(f"❌ 發送失敗，錯誤代碼: {response.status_code}")
+        print(f"錯誤訊息: {response.text}")
+
+except Exception as e:
+    print(f"❌ 程式執行發生錯誤: {e}")
