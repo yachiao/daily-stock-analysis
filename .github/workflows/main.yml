@@ -1,0 +1,37 @@
+name: Daily Stock Update
+
+on:
+  schedule:
+    # 設定執行時間 (UTC 時間)
+    # UTC 08:00 = 台灣時間 16:00 (收盤後)
+    - cron: '0 8 * * *' 
+  workflow_dispatch: # 讓你可以在網頁上手動按按鈕測試
+
+jobs:
+  run_analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 下載程式碼 (Checkout)
+        uses: actions/checkout@v3
+
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 安裝套件
+        run: |
+          pip install -r requirements.txt
+
+      - name: 執行分析程式
+        run: python analysis.py
+
+      - name: 提交並儲存結果 (Commit & Push)
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add results/
+          # 如果有變動才 commit，沒變動則略過 (避免報錯)
+          git commit -m "Auto-update market breadth chart" || exit 0
+          git push
