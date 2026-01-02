@@ -186,7 +186,7 @@ if tg_token and chat_id:
         f'📈 200日新高: {int(today_stats["Highs"])} 家\n'
         f'📉 200日新低: {int(today_stats["Lows"])} 家\n'
         f'⚖️ 多空比: {int(today_stats["Ratio %"])}%\n'
-        f'🔍 統計樣本: {df_close.shape[1]} 檔\n'
+        f'🔍 統計樣本: {df_close.shape[1]} 檔 (上市)\n'
         f'📝 包含最近10日數據表與大盤走勢對照'
     )
     
