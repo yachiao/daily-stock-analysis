@@ -20,70 +20,83 @@ if not os.path.exists('results'):
 
 print(f"[{datetime.now()}] 1. 正在取得全台股代碼清單 (上市)...")
 
-stock_list = []
+stock_list_tse = []
 try:
     codes = twstock.codes
     for code in codes:
         row = codes[code]
-        if row.type == '股票':
-            if row.market == '上市':
-                stock_list.append(code)
+        if row.type == '股票' and row.market == '上市':
+            stock_list_tse.append(code)
             
-    print(f"共取得 {len(stock_list)} 檔上市股票代碼。")
+    print(f"目標鎖定: {len(stock_list_tse)} 檔上市股票。")
 except Exception as e:
     print(f"取得代碼失敗: {e}")
     exit()
 
-print(f"[{datetime.now()}] 2. 啟動 FinMind 馬拉松下載 (預計耗時 30 分鐘)...")
+print(f"[{datetime.now()}] 2. 啟動 FinMind 「整月批次下載」 (超低請求數模式)...")
 
-# --- 定義 FinMind 下載函數 (馬拉松版) ---
-def download_finmind_marathon(tickers, lookback_days=400):
+# --- 定義 FinMind 月批次下載函數 ---
+def download_by_month(target_stocks, lookback_months=15):
     dl = DataLoader()
-    start_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
-    all_data = []
+    all_dfs = []
     
-    # 設定批次大小與休息時間
-    # FinMind 免費版限制每小時約 600 次
-    # 我們設定每批 200 檔，休息 300 秒 (5分鐘)，確保不撞牆
-    BATCH_SIZE = 200
-    SLEEP_SECONDS = 300 
+    # 計算要下載的月份列表
+    current_date = datetime.now()
+    month_list = []
+    for i in range(lookback_months):
+        d = current_date - timedelta(days=30 * i)
+        month_list.append(d.strftime('%Y-%m'))
     
-    total_tickers = len(tickers)
+    # 確保月份是由舊到新
+    month_list = sorted(list(set(month_list)))
     
-    # 批次處理
-    for i in range(0, total_tickers, BATCH_SIZE):
-        batch = tickers[i : i + BATCH_SIZE]
-        batch_idx = (i // BATCH_SIZE) + 1
-        total_batches = (total_tickers // BATCH_SIZE) + 1
-        
-        print(f"\n🚀 正在執行第 {batch_idx}/{total_batches} 批次 (本批 {len(batch)} 檔)...")
-        
-        # 下載該批次
-        for ticker in tqdm(batch, desc=f"Batch {batch_idx}"):
-            try:
-                df = dl.taiwan_stock_daily(stock_id=ticker, start_date=start_date)
-                if not df.empty:
-                    df = df[['date', 'stock_id', 'close']]
-                    all_data.append(df)
-            except Exception as e:
-                pass
-        
-        # 如果不是最後一批，就強制休息
-        if i + BATCH_SIZE < total_tickers:
-            print(f"😴 為了避開 API 限制，強制休息 {SLEEP_SECONDS/60} 分鐘...請稍候...")
-            time.sleep(SLEEP_SECONDS)
-            print("⏰ 休息結束，繼續工作！")
+    print(f"   -> 準備下載 {len(month_list)} 個月份的全市場數據...")
+    print(f"   -> 請求次數僅需 {len(month_list)} 次 (極度穩定)")
 
-    if not all_data:
+    for month_str in tqdm(month_list, desc="下載進度"):
+        try:
+            # 計算該月的第一天和最後一天
+            # FinMind 支援一次抓整個區間的全市場資料，我們以月為單位
+            year, month = map(int, month_str.split('-'))
+            
+            # 設定該月的起始日
+            start_date = f"{year}-{month:02d}-01"
+            
+            # 簡單推算下個月的第一天減一天當作月底，或者直接抓到下個月1號
+            if month == 12:
+                next_month_date = f"{year+1}-01-01"
+            else:
+                next_month_date = f"{year}-{month+1:02d}-01"
+            
+            # 【關鍵】不指定 stock_id，FinMind 就會回傳「全台股」該區間資料
+            # 這樣一次請求就抓了 1000 檔股票 * 30 天的資料，效率極高
+            df = dl.taiwan_stock_daily(start_date=start_date, end_date=next_month_date)
+            
+            if not df.empty:
+                # 1. 篩選我們需要的股票 (只保留上市清單)
+                df = df[df['stock_id'].isin(target_stocks)]
+                
+                # 2. 只留需要的欄位
+                df = df[['date', 'stock_id', 'close']]
+                
+                all_dfs.append(df)
+            
+            # 休息 2 秒，禮貌性避開連續請求
+            time.sleep(2)
+            
+        except Exception as e:
+            print(f"      ❌ {month_str} 下載失敗: {e}")
+
+    if not all_dfs:
         return pd.DataFrame()
-        
-    print(f"\n✅ 所有資料下載完成！正在合併 {len(all_data)} 檔數據...")
+
+    print("   -> 下載完成，正在合併與轉置資料 (這步會花一點時間)...")
+    big_df = pd.concat(all_dfs)
     
-    big_df = pd.concat(all_data)
-    # 移除重複值 (保險起見)
+    # 移除重複值
     big_df = big_df.drop_duplicates()
     
-    # 轉置表格
+    # 轉置: 行=日期, 列=股票代碼
     df_pivot = big_df.pivot(index='date', columns='stock_id', values='close')
     df_pivot.index = pd.to_datetime(df_pivot.index)
     
@@ -91,22 +104,23 @@ def download_finmind_marathon(tickers, lookback_days=400):
 
 # 2. 執行下載
 try:
-    # A. 下載個股 (執行馬拉松)
-    df_close = download_finmind_marathon(stock_list, lookback_days=400)
+    # A. 下載個股 (使用月批次法)
+    # 抓 14 個月大約 420 天，足夠算 200MA
+    df_close = download_by_month(stock_list_tse, lookback_months=14)
     
     # 過濾空值
     df_close = df_close.dropna(axis=1, how='all')
-    print(f"📊 有效個股數量: {df_close.shape[1]} 檔")
+    print(f"📊 有效個股數量: {df_close.shape[1]} 檔 (目標: 900+)")
     
-    # 如果數量太少 (小於 800)，代表還是有問題
     if df_close.shape[1] < 500:
-        print("⚠️ 警告：下載數量仍偏少，可能是網路不穩或 API 異常。")
-    
+        print("❌ 錯誤：有效股數過少，請檢查 FinMind API 狀態。")
+        exit()
+
     # B. 下載大盤資料
     print("   -> 下載大盤資料...")
     try:
         dl = DataLoader()
-        start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=450)).strftime('%Y-%m-%d')
         taiex_df = dl.taiwan_stock_daily(stock_id='TAIEX', start_date=start_date)
         
         if not taiex_df.empty:
@@ -114,9 +128,7 @@ try:
             taiex_close = taiex_df.set_index('date')['close']
         else:
             taiex_close = pd.Series(dtype=float)
-            
-    except Exception as e:
-        print(f"大盤下載失敗: {e}")
+    except Exception:
         taiex_close = pd.Series(dtype=float)
 
 except Exception as e:
@@ -127,7 +139,7 @@ print(f"[{datetime.now()}] 3. 計算技術指標與多空比...")
 
 # 3. 計算指標
 window = 200
-df_close = df_close.ffill()
+df_close = df_close.ffill() # 補一下缺漏值
 
 rolling_max = df_close.rolling(window=window, min_periods=150).max()
 rolling_min = df_close.rolling(window=window, min_periods=150).min()
@@ -147,7 +159,7 @@ else:
 plot_df = market_breadth.dropna(subset=['New_Highs', 'New_Lows']).iloc[-120:].copy()
 
 if plot_df.empty:
-    print("❌ 錯誤：數據不足，無法繪圖。")
+    print("❌ 錯誤：數據計算後為空，無法繪圖。")
     exit()
 
 # --- 製作表格 ---
@@ -223,12 +235,12 @@ if tg_token and chat_id:
     
     today_stats = table_display.iloc[0]
     caption = (
-        f'📊 **台股市場寬度日報 (完整掃描版)**\n'
+        f'📊 **台股市場寬度日報 (整月批次版)**\n'
         f'📅 日期: {datetime.now().strftime("%Y-%m-%d")}\n'
         f'📈 新高: {int(today_stats["Highs"])} / 📉 新低: {int(today_stats["Lows"])}\n'
         f'⚖️ 多空比: {int(today_stats["Ratio %"])}%\n'
         f'🔍 有效樣本: {df_close.shape[1]} 檔\n'
-        f'⏳ 耗時: 約30分鐘 (為確保完整性)'
+        f'🚀 狀態: 成功下載完整市場數據'
     )
     
     try:
