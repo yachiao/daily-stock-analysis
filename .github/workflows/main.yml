@@ -28,6 +28,7 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINMIND_API_TOKEN: ${{ secrets.FINMIND_API_TOKEN }}
         # 【關鍵修改】設定超時為 120 分鐘，允許程式慢慢跑
         timeout-minutes: 120
         run: python analysis.py
