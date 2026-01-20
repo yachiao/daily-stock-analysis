@@ -24,12 +24,12 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: 執行分析程式
+      - name: 執行分析程式 (馬拉松模式)
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # 增加 timeout 防止 FinMind 下載太久卡住 (設定 30 分鐘)
-        timeout-minutes: 30
+        # 【關鍵修改】設定超時為 120 分鐘，允許程式慢慢跑
+        timeout-minutes: 120
         run: python analysis.py
 
       - name: 提交並儲存結果 (Commit & Push)
