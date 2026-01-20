@@ -2,10 +2,9 @@ name: Daily Stock Update
 
 on:
   schedule:
-    # GitHub 使用 UTC 時間
-    # 台灣時間 06:00 = UTC 22:00 (前一天)
+    # 台灣時間 06:00 = UTC 22:00
     - cron: '0 22 * * *'
-  workflow_dispatch: # 允許手動按按鈕測試
+  workflow_dispatch: # 允許手動測試
 
 jobs:
   run_analysis:
@@ -18,7 +17,7 @@ jobs:
       - name: 設定 Python 環境
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'  # <---【關鍵修正】升級到 3.10 解決 yfinance 錯誤
+          python-version: '3.10' # 使用 3.10 避免 yfinance 語法錯誤
           cache: 'pip'
 
       - name: 安裝套件
@@ -36,6 +35,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add results/
-          # 如果有變動才 commit，沒變動則略過
           git commit -m "Auto-update market breadth chart" || exit 0
           git push
